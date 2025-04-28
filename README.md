@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Aplikasi Audit Kelapa Sawit</title>
+  <title>Aplikasi Audit Penghasilan Kelapa Sawit</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -18,7 +18,7 @@
     .form-group {
       margin-bottom: 10px;
     }
-    .form-group input {
+    .form-group input, .form-group select {
       width: 100%;
       padding: 8px;
     }
@@ -29,6 +29,7 @@
       border: none;
       cursor: pointer;
       margin-top: 10px;
+      border-radius: 5px;
     }
     .btn-danger {
       background-color: #f44336;
@@ -41,17 +42,30 @@
     th, td {
       border: 1px solid #ddd;
       padding: 8px;
+      text-align: center;
     }
     .login-container, .register-container {
       text-align: center;
       margin-top: 50px;
     }
     .login-container input, .register-container input {
-      width: 200px;
+      width: 250px;
+    }
+    .toast {
+      background: #333;
+      color: #fff;
+      padding: 10px 20px;
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      border-radius: 5px;
+      display: none;
+      z-index: 1000;
     }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
 </head>
+
 <body>
 <div class="container">
   <h1>Aplikasi Audit Penghasilan Kelapa Sawit</h1>
@@ -86,6 +100,7 @@
 
   <!-- Main App -->
   <div id="app" style="display:none;">
+    <h2>Tambah Data Panen</h2>
     <div class="form-group">
       <input type="date" id="tanggal" placeholder="Tanggal Panen">
     </div>
@@ -96,9 +111,16 @@
       <input type="number" id="berat" placeholder="Berat (Kg)">
     </div>
     <div class="form-group">
-      <input type="number" id="harga" placeholder="Harga per kg">
+      <input type="number" id="harga" placeholder="Harga per Kg">
     </div>
     <button class="btn" onclick="addData()">Tambah Data</button>
+
+    <h2>Data Panen</h2>
+    <div class="form-group">
+      <select id="filterBulan" onchange="renderData()">
+        <option value="all">Tampilkan Semua Bulan</option>
+      </select>
+    </div>
 
     <table id="dataTable">
       <thead>
@@ -120,9 +142,11 @@
     <div id="summary" style="margin-top:20px; font-weight:bold;"></div>
 
     <button class="btn btn-danger" onclick="logout()">Logout</button>
-    <button class="btn" onclick="exportToExcel()">Export to Excel</button>
+    <button class="btn" onclick="exportToExcel()">Export Excel</button>
   </div>
 </div>
+
+<div class="toast" id="toast"></div>
 
 <!-- Firebase -->
 <script type="module">
@@ -144,12 +168,19 @@
   const auth = getAuth(app);
   const db = getFirestore(app);
 
+  const toast = (msg) => {
+    const t = document.getElementById('toast');
+    t.innerText = msg;
+    t.style.display = 'block';
+    setTimeout(() => { t.style.display = 'none'; }, 3000);
+  };
+
   window.register = async function () {
     const email = document.getElementById('regUsername').value;
     const password = document.getElementById('regPassword').value;
     try {
       await createUserWithEmailAndPassword(auth, email, password);
-      alert("Berhasil register");
+      toast("Berhasil register");
       showLogin();
     } catch (e) {
       document.getElementById('registerError').innerText = e.message;
@@ -162,6 +193,7 @@
     try {
       await signInWithEmailAndPassword(auth, email, password);
       document.getElementById('loginError').innerText = '';
+      toast("Berhasil login");
     } catch (e) {
       document.getElementById('loginError').innerText = e.message;
     }
@@ -169,6 +201,7 @@
 
   window.logout = async function () {
     await signOut(auth);
+    toast("Berhasil logout");
   };
 
   window.addData = async function () {
@@ -178,7 +211,6 @@
     const harga = parseFloat(document.getElementById('harga').value);
     const user = auth.currentUser;
 
-    // Validasi input
     if (!tanggal || !bpMobil || berat <= 0 || harga <= 0) {
       alert("Mohon isi semua data dengan benar.");
       return;
@@ -201,6 +233,7 @@
       bersih
     });
 
+    toast("Data berhasil ditambahkan");
     renderData();
   };
 
@@ -208,45 +241,57 @@
     const user = auth.currentUser;
     if (!user) return;
 
-    const q = query(
-      collection(db, "panen"),
-      where("uid", "==", user.uid),
-      orderBy("tanggal", "asc")
-    );
+    const q = query(collection(db, "panen"), where("uid", "==", user.uid), orderBy("tanggal", "asc"));
     const snapshot = await getDocs(q);
     const tbody = document.querySelector("#dataTable tbody");
+    const filter = document.getElementById("filterBulan").value;
     tbody.innerHTML = "";
 
     let totalKotor = 0, totalBersih = 0;
+    let bulanTahunSet = new Set();
 
     snapshot.forEach(docu => {
       const d = docu.data();
-      const tanggalFormatted = new Date(d.tanggal.seconds * 1000).toLocaleDateString();
-      totalKotor += d.penghasilanKotor;
-      totalBersih += d.bersih;
+      const tanggalObj = new Date(d.tanggal.seconds * 1000);
+      const bulanTahun = tanggalObj.getMonth() + 1 + "-" + tanggalObj.getFullYear();
 
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${tanggalFormatted}</td>
-        <td>${d.bpMobil}</td>
-        <td>${d.berat.toLocaleString()}</td>
-        <td>${d.harga.toLocaleString()}</td>
-        <td>${d.penghasilanKotor.toLocaleString()}</td>
-        <td>${d.afterPPN.toLocaleString()}</td>
-        <td>${d.biayaBongkar.toLocaleString()}</td>
-        <td>${d.bersih.toLocaleString()}</td>
-        <td><button class="btn btn-danger" onclick="deleteData('${docu.id}')">Delete</button></td>
-      `;
-      tbody.appendChild(tr);
+      bulanTahunSet.add(bulanTahun);
+
+      if (filter === "all" || filter === bulanTahun) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${tanggalObj.toLocaleDateString()}</td>
+          <td>${d.bpMobil}</td>
+          <td>${d.berat.toLocaleString()}</td>
+          <td>${d.harga.toLocaleString()}</td>
+          <td>${d.penghasilanKotor.toLocaleString()}</td>
+          <td>${d.afterPPN.toLocaleString()}</td>
+          <td>${d.biayaBongkar.toLocaleString()}</td>
+          <td>${d.bersih.toLocaleString()}</td>
+          <td><button class="btn btn-danger" onclick="deleteData('${docu.id}')">Delete</button></td>
+        `;
+        tbody.appendChild(tr);
+
+        totalKotor += d.penghasilanKotor;
+        totalBersih += d.bersih;
+      }
     });
 
     document.getElementById("summary").innerText =
       `Total Kotor: Rp ${totalKotor.toLocaleString()} | Total Bersih: Rp ${totalBersih.toLocaleString()}`;
+
+    // Update Filter Dropdown
+    const select = document.getElementById("filterBulan");
+    select.innerHTML = `<option value="all">Tampilkan Semua Bulan</option>`;
+    bulanTahunSet.forEach(bulan => {
+      select.innerHTML += `<option value="${bulan}">${bulan}</option>`;
+    });
   };
 
   window.deleteData = async function (id) {
     if (confirm("Yakin ingin hapus data?")) {
       await deleteDoc(doc(db, "panen", id));
+      toast("Data berhasil dihapus");
       renderData();
     }
   };
@@ -275,9 +320,10 @@
 
   window.exportToExcel = function () {
     const table = document.getElementById('dataTable');
-    const wb = XLSX.utils.table_to_book(table, { sheet: "Data" });
+    const wb = XLSX.utils.table_to_book(table, { sheet: "Data Panen" });
     XLSX.writeFile(wb, "data_kelapa_sawit.xlsx");
   };
 </script>
+
 </body>
 </html>
