@@ -205,8 +205,33 @@
     const snapshot = await getDocs(q);
     const tbody = document.querySelector("#dataTable tbody");
     tbody.innerHTML = "";
+
+    // Mengambil data dan menyimpannya dalam array
+    const data = [];
     snapshot.forEach(docu => {
       const d = docu.data();
+      data.push({
+        id: docu.id,
+        tanggal: d.tanggal,
+        bpMobil: d.bpMobil,
+        berat: d.berat,
+        harga: d.harga,
+        penghasilanKotor: d.penghasilanKotor,
+        afterPPN: d.afterPPN,
+        biayaBongkar: d.biayaBongkar,
+        bersih: d.bersih
+      });
+    });
+
+    // Mengurutkan data berdasarkan tanggal (dari yang paling awal)
+    data.sort((a, b) => {
+      const dateA = new Date(a.tanggal);  // Mengubah tanggal ke format Date
+      const dateB = new Date(b.tanggal);
+      return dateA - dateB;  // Ascending order (tanggal paling awal ke paling akhir)
+    });
+
+    // Menampilkan data yang sudah diurutkan
+    data.forEach(d => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${d.tanggal}</td>
@@ -217,7 +242,7 @@
         <td>${d.afterPPN.toLocaleString()}</td>
         <td>${d.biayaBongkar.toLocaleString()}</td>
         <td>${d.bersih.toLocaleString()}</td>
-        <td><button class="btn btn-danger" onclick="deleteData('${docu.id}')">Delete</button></td>
+        <td><button class="btn btn-danger" onclick="deleteData('${d.id}')">Delete</button></td>
       `;
       tbody.appendChild(tr);
     });
