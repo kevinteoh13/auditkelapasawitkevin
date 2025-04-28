@@ -117,6 +117,8 @@
       <tbody></tbody>
     </table>
 
+    <div id="summary" style="margin-top:20px; font-weight:bold;"></div>
+
     <button class="btn btn-danger" onclick="logout()">Logout</button>
     <button class="btn" onclick="exportToExcel()">Export to Excel</button>
   </div>
@@ -126,14 +128,13 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-  import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, query, where, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-  // Firebase configuration
   const firebaseConfig = {
     apiKey: "AIzaSyB-mQdV7yaESX7fIfCWp9vlPKX3ga74xwY",
     authDomain: "kelapa-sawit-audit.firebaseapp.com",
     projectId: "kelapa-sawit-audit",
-    storageBucket: "kelapa-sawit-audit.firebasestorage.app",
+    storageBucket: "kelapa-sawit-audit.appspot.com",
     messagingSenderId: "909941962760",
     appId: "1:909941962760:web:81c936109aca6a210939bd",
     measurementId: "G-M45XQGFT51"
@@ -160,6 +161,7 @@
     const password = document.getElementById('password').value;
     try {
       await signInWithEmailAndPassword(auth, email, password);
+      document.getElementById('loginError').innerText = '';
     } catch (e) {
       document.getElementById('loginError').innerText = e.message;
     }
@@ -174,17 +176,22 @@
     const bpMobil = document.getElementById('bpMobil').value;
     const berat = parseFloat(document.getElementById('berat').value);
     const harga = parseFloat(document.getElementById('harga').value);
-    const user = auth.currentUser; // Get the currently logged-in user
+    const user = auth.currentUser;
+
+    // Validasi input
+    if (!tanggal || !bpMobil || berat <= 0 || harga <= 0) {
+      alert("Mohon isi semua data dengan benar.");
+      return;
+    }
 
     const penghasilanKotor = berat * harga;
     const afterPPN = penghasilanKotor * 0.9975;
     const biayaBongkar = berat * 18;
     const bersih = afterPPN - biayaBongkar;
 
-    // Store the data with the user's UID
     await addDoc(collection(db, "panen"), {
-      uid: user.uid, // Add the UID of the current user
-      tanggal,
+      uid: user.uid,
+      tanggal: new Date(tanggal),
       bpMobil,
       berat,
       harga,
@@ -194,22 +201,33 @@
       bersih
     });
 
-    renderData(); // Update the table with the new data
+    renderData();
   };
 
   window.renderData = async function () {
     const user = auth.currentUser;
-    if (!user) return; // If no user is logged in, don't render anything
+    if (!user) return;
 
-    const q = query(collection(db, "panen"), where("uid", "==", user.uid)); // Filter by the logged-in user's UID
+    const q = query(
+      collection(db, "panen"),
+      where("uid", "==", user.uid),
+      orderBy("tanggal", "asc")
+    );
     const snapshot = await getDocs(q);
     const tbody = document.querySelector("#dataTable tbody");
     tbody.innerHTML = "";
+
+    let totalKotor = 0, totalBersih = 0;
+
     snapshot.forEach(docu => {
       const d = docu.data();
+      const tanggalFormatted = new Date(d.tanggal.seconds * 1000).toLocaleDateString();
+      totalKotor += d.penghasilanKotor;
+      totalBersih += d.bersih;
+
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${d.tanggal}</td>
+        <td>${tanggalFormatted}</td>
         <td>${d.bpMobil}</td>
         <td>${d.berat.toLocaleString()}</td>
         <td>${d.harga.toLocaleString()}</td>
@@ -221,6 +239,9 @@
       `;
       tbody.appendChild(tr);
     });
+
+    document.getElementById("summary").innerText =
+      `Total Kotor: Rp ${totalKotor.toLocaleString()} | Total Bersih: Rp ${totalBersih.toLocaleString()}`;
   };
 
   window.deleteData = async function (id) {
